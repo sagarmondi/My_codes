@@ -38,6 +38,14 @@ pipeline {
                 }
             }
         }  
+		 stage('Debug Environment Variable') {
+            steps {
+                script {
+                    echo "PRODUCTION_IP_ADDRESS: $PRODUCTION_IP_ADDRESS"
+                }
+            }
+        }
+		
 
         stage('Add Host to known_hosts') {
             steps {
