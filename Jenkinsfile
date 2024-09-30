@@ -61,15 +61,15 @@ pipeline {
                         chmod 600 $DEPLOY_SSH_KEY
                         ssh -v -i $DEPLOY_SSH_KEY ubuntu@$PRODUCTION_IP_ADDRESS '
                             if [ ! -d "todos-app" ]; then
-                                git clone https://github.com/AhmadMazaal/todos-app.git todos-app
-                                cd todos-app
+                                git clone https://github.com/sagarmondi/My_codes.git My_codes
+                                cd My_codes
                             else
-                                cd todos-app
+                                cd My_codes
                                 git pull
                             fi
 
                             yarn install
-                            
+
                             if pm2 describe todos-app > /dev/null ; then
                                 pm2 restart todos-app
                             else
