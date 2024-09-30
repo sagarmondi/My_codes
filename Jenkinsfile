@@ -1,5 +1,10 @@
 pipeline {
     agent any
+	environment {
+        PRODUCTION_IP_ADDRESS = '35.162.27.193'
+        DEPLOY_SSH_KEY = credentials('AWS_INSTANCE_SSH')
+    }
+	
     
     tools {
         nodejs "nodejs"
@@ -78,8 +83,8 @@ pipeline {
 
                             yarn install
 
-                            if pm2 describe todos-app > /dev/null ; then
-                                pm2 restart todos-app
+                            if pm2 describe My_codes > /dev/null ; then
+                                pm2 restart My_codes
                             else
                                 yarn start:pm2
                             fi
