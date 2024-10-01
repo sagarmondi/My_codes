@@ -1,7 +1,7 @@
 pipeline {
     agent any
 	environment {
-        PRODUCTION_IP_ADDRESS = '35.162.27.193'
+        PRODUCTION_IP_ADDRESS = '172.31.16.34'
         
     }
 	
