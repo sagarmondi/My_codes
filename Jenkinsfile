@@ -15,6 +15,7 @@ pipeline {
             steps {
                 script {
                     sh 'npm install -g yarn' // Install yarn globally
+		    sh 'npm install -g pm2' // Install pm2 globally
                 }
             }
         }
