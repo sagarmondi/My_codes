@@ -1,7 +1,7 @@
 pipeline {
     agent any
 	environment {
-        PRODUCTION_IP_ADDRESS = '35.162.27.193'
+        PRODUCTION_IP_ADDRESS = '52.43.163.218'
         
     }
 	
@@ -65,7 +65,7 @@ pipeline {
 
         stage('Deploy') {
             environment {
-                DEPLOY_SSH_KEY = credentials('AWS_INSTANCE_SSH')
+                DEPLOY_SSH_KEY = credentials('aws_ssh_key')
             }
 
             steps {
