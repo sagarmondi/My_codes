@@ -80,7 +80,7 @@ pipeline {
                 script {
                     sh '''
                         chmod 600 $DEPLOY_SSH_KEY
-                        ssh -v -i $DEPLOY_SSH_KEY ubuntu@$PRODUCTION_IP_ADDRESS '
+                        ssh -v -i $DEPLOY_SSH_KEY ec2-user@$PRODUCTION_IP_ADDRESS '
                             if [ ! -d "todos-app" ]; then
                                 git clone https://github.com/sagarmondi/My_codes.git My_codes
                                 cd My_codes
