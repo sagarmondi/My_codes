@@ -11,6 +11,13 @@ pipeline {
     }
 
     stages {
+	stage('Install Yarn') {
+            steps {
+                script {
+                    sh 'npm install -g yarn' // Install yarn globally
+                }
+            }
+        }
         stage('Install Packages') {
             steps {
                 script {
