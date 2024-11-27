@@ -1,105 +1,77 @@
 pipeline {
     agent any
-	environment {
+    environment {
         PRODUCTION_IP_ADDRESS = '52.43.163.218'
-        
     }
-	
     
     tools {
         nodejs "nodejs"
     }
-
+    
     stages {
-	stage('Install Yarn') {
+        stage('Local Preparation') {
             steps {
                 script {
-                    sh 'npm install -g yarn' // Install yarn globally
-		    sh 'npm install -g pm2' // Install pm2 globally
-                }
-            }
-        }
-        stage('Install Packages') {
-            steps {
-                script {
+                    sh 'npm install -g yarn pm2'
                     sh 'yarn install'
                 }
             }
         }
-
-        stage('Run the App') {
-            steps {
-                script {
-                    sh 'yarn start:pm2'
-                    sleep 5
-                }
-            }
-        }
-
-        stage('Test the app') {
-            steps {
-                script {
-                    sh 'curl http://localhost:3000/health'
-                }
-            }
-        }
-
-        stage('Stop the App') {
-            steps {
-                script {
-                    sh 'pm2 stop todos-app'
-                }
-            }
-        }  
-		 stage('Debug Environment Variable') {
-            steps {
-                script {
-                    echo "PRODUCTION_IP_ADDRESS: $PRODUCTION_IP_ADDRESS"
-                }
-            }
-        }
-		
-
-        stage('Add Host to known_hosts') {
-            steps {
-                script {
-                    sh '''
-                        mkdir -p /var/lib/jenkins/.ssh
-                        ssh-keyscan -H $PRODUCTION_IP_ADDRESS >> /var/lib/jenkins/.ssh/known_hosts
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy') {
+        
+        stage('Deploy to EC2') {
             environment {
                 DEPLOY_SSH_KEY = credentials('aws_ssh_key')
             }
-
             steps {
                 script {
                     sh '''
                         chmod 600 $DEPLOY_SSH_KEY
-                        ssh -v -i $DEPLOY_SSH_KEY ec2-user@$PRODUCTION_IP_ADDRESS '
-                            if [ ! -d "todos-app" ]; then
-                                git clone https://github.com/sagarmondi/My_codes.git My_codes
+                        ssh -o StrictHostKeyChecking=no -i $DEPLOY_SSH_KEY ec2-user@$PRODUCTION_IP_ADDRESS '
+                            # Install Node.js and dependencies
+                            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+                            source ~/.bashrc
+                            
+                            # Install latest LTS Node.js
+                            nvm install --lts
+                            
+                            # Install Yarn and PM2 globally
+                            npm install -g yarn pm2
+                            
+                            # Ensure Git is installed
+                            sudo yum update -y
+                            sudo yum install -y git
+                            
+                            # Clone or Update the repository
+                            if [ ! -d "My_codes" ]; then
+                                git clone https://github.com/sagarmondi/My_codes.git
                                 cd My_codes
                             else
                                 cd My_codes
                                 git pull
                             fi
-
+                            
+                            # Install project dependencies
                             yarn install
-
-                            if pm2 describe My_codes > /dev/null ; then
-                                pm2 restart My_codes
+                            
+                            # Start or Restart the application
+                            if pm2 describe todos-app > /dev/null 2>&1; then
+                                pm2 restart todos-app
                             else
-                                yarn start:pm2
+                                pm2 start --name todos-app npm -- start
                             fi
                         '
                     '''
                 }
             }
+        }
+    }
+    
+    post {
+        failure {
+            echo "Deployment failed. Check the logs for detailed information."
+        }
+        success {
+            echo "Deployment completed successfully!"
         }
     }
 }
