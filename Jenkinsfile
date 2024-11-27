@@ -1,7 +1,16 @@
 pipeline {
     agent any
+    
     environment {
+        // Semgrep credentials
+        SEMGREP_APP_TOKEN = credentials('SEMGREP_APP_TOKEN')
+        
+        // Deployment details
         PRODUCTION_IP_ADDRESS = '52.43.163.218'
+        APP_PORT = '3000'
+        
+        // Nuclei scan configurations
+        NUCLEI_TEMPLATES_PATH = '/home/ec2-user/nuclei-templates/'
     }
     
     tools {
@@ -9,16 +18,54 @@ pipeline {
     }
     
     stages {
-        stage('Local Preparation') {
+        stage('Install Dependencies') {
             steps {
                 script {
+                    // Install global tools
                     sh 'npm install -g yarn pm2'
+                    sh 'pip3 install semgrep'
+                    
+                    // Install project dependencies
                     sh 'yarn install'
                 }
             }
         }
         
-        stage('Deploy to EC2') {
+        stage('Build') {
+            steps {
+                script {
+                    // Build steps (if any)
+                    sh 'yarn build || true'
+                }
+            }
+        }
+        
+        stage('SAST - Semgrep Scan') {
+            steps {
+                script {
+                    try {
+                        // Run Semgrep scan
+                        sh '''
+                            /var/lib/jenkins/.local/bin/semgrep ci \
+                            --config=auto \
+                            --json \
+                            --no-suppress-errors \
+                            -o semgrep-results.json
+                        '''
+                    } catch (Exception e) {
+                        echo "Semgrep scan completed with issues: ${e.message}"
+                    }
+                }
+            }
+            post {
+                always {
+                    // Archive Semgrep results
+                    archiveArtifacts artifacts: 'semgrep-results.json', allowEmptyArchive: true
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
             environment {
                 DEPLOY_SSH_KEY = credentials('aws_ssh_key')
             }
@@ -64,14 +111,51 @@ pipeline {
                 }
             }
         }
+        
+        stage('DAST - Nuclei Scan') {
+            steps {
+                script {
+                    // Install Nuclei if not already installed
+                    sh '''
+                        which nuclei || {
+                            wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.3/nuclei_3.1.3_linux_amd64.zip
+                            unzip nuclei_3.1.3_linux_amd64.zip
+                            sudo mv nuclei /usr/local/bin/
+                        }
+                        
+                        # Perform Nuclei scan
+                        nuclei -u http://${PRODUCTION_IP_ADDRESS}:${APP_PORT} \
+                               -t ${NUCLEI_TEMPLATES_PATH} \
+                               -o nuclei-results.txt
+                    '''
+                }
+            }
+            post {
+                always {
+                    // Archive Nuclei scan results
+                    archiveArtifacts artifacts: 'nuclei-results.txt', allowEmptyArchive: true
+                }
+            }
+        }
     }
     
     post {
-        failure {
-            echo "Deployment failed. Check the logs for detailed information."
+        always {
+            // Cleanup and notification steps
+            echo "Pipeline execution completed"
+            
+            // Optional: Send notifications based on build status
+            script {
+                if (currentBuild.result == 'FAILURE') {
+                    echo "Build failed. Sending notifications..."
+                    // Add email or Slack notification logic here
+                }
+            }
         }
-        success {
-            echo "Deployment completed successfully!"
+        
+        cleanup {
+            // Clean up workspace
+            cleanWs()
         }
     }
 }
