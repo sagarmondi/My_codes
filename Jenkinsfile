@@ -47,7 +47,6 @@ pipeline {
                         // Run Semgrep scan
                         sh '''
                             /var/lib/jenkins/.local/bin/semgrep ci \
-                            --config=auto \
                             --json \
                             --no-suppress-errors \
                             -o semgrep-results.json
@@ -151,6 +150,10 @@ pipeline {
                     // Add email or Slack notification logic here
                 }
             }
+        }
+        cleanup {
+            // Clean up workspace
+            cleanWs()
         }
         
     }
