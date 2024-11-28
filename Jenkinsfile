@@ -43,23 +43,29 @@ pipeline {
         stage('SAST - Semgrep Scan') {
             steps {
                 script {
-                    try {
-                        // Run Semgrep scan
-                        sh '''
+                    def semgrepResult = sh(
+                        script: '''
                             /var/lib/jenkins/.local/bin/semgrep ci \
                             --json \
                             --no-suppress-errors \
                             -o semgrep-results.json
-                        '''
-                    } catch (Exception e) {
-                        echo "Semgrep scan completed with issues: ${e.message}"
+                        ''',
+                        returnStatus: true
+                    )
+                    
+                    if (semgrepResult != 0) {
+                        error "Semgrep scan failed with exit code ${semgrepResult}"
                     }
                 }
             }
             post {
                 always {
-                    // Archive Semgrep results
+                    // Archive Semgrep results if they exist
                     archiveArtifacts artifacts: 'semgrep-results.json', allowEmptyArchive: true
+                }
+                failure {
+                    // Optional: Add specific failure handling
+                    echo "Semgrep scan stage failed"
                 }
             }
         }
