@@ -153,9 +153,5 @@ pipeline {
             }
         }
         
-        cleanup {
-            // Clean up workspace
-            cleanWs()
-        }
     }
 }
