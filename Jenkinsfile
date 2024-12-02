@@ -44,38 +44,40 @@ pipeline {
             steps {
                 script {
                     // Run Semgrep scan with detailed output
+                    def semgrepScanCommand = '''
+                        /var/lib/jenkins/.local/bin/semgrep ci \
+                        --json \
+                        --no-suppress-errors \
+                        -o semgrep-results.json
+                    '''
+                    
                     def semgrepResult = sh(
-                        script: '''
-                            /var/lib/jenkins/.local/bin/semgrep ci \
-                            --json \
-                            --no-suppress-errors \
-                            -o semgrep-results.json
-                        ''',
+                        script: semgrepScanCommand,
                         returnStatus: true,
                         returnStdout: true
                     )
                     
-                    // Groovy-based rule extraction without external tools
-                    def semgrepResults = readFile('semgrep-results.json')
+                    // Extract rule information using shell commands
+                    sh '''
+                        # Extract unique rule IDs using grep and sort
+                        grep -o '"rule_id":"[^"]*' semgrep-results.json | 
+                        cut -d':' -f2 | 
+                        sed 's/"//g' | 
+                        sort | 
+                        uniq > semgrep-used-rules.txt
+                    '''
                     
-                    // Parse JSON and extract unique rule IDs
-                    def jsonSlurper = new groovy.json.JsonSlurperClassic()
-                    def parsedResults = jsonSlurper.parseText(semgrepResults)
-                    
-                    // Extract unique rule IDs
-                    def usedRules = parsedResults.results.collect { it.extra.rule_id }.unique()
-                    
-                    // Write used rules to a file
-                    def rulesJsonBuilder = new groovy.json.JsonBuilder()
-                    rulesJsonBuilder(usedRules)
-                    
-                    writeFile(
-                        file: 'semgrep-used-rules.json', 
-                        text: rulesJsonBuilder.toPrettyString()
-                    )
+                    // Read the extracted rules
+                    def usedRules = readFile('semgrep-used-rules.txt').trim().split('\n')
                     
                     // Log the number of used rules
                     echo "Total Semgrep Rules Used: ${usedRules.size()}"
+                    
+                    // Print the rules
+                    echo "Used Rules:"
+                    usedRules.each { rule ->
+                        echo "- ${rule}"
+                    }
                     
                     if (semgrepResult != 0) {
                         error "Semgrep scan failed with exit code ${semgrepResult}"
@@ -85,13 +87,54 @@ pipeline {
             post {
                 always {
                     // Archive Semgrep results and used rules
-                    archiveArtifacts artifacts: 'semgrep-results.json,semgrep-used-rules.json', allowEmptyArchive: true
-                }
-                failure {
-                    echo "Semgrep scan stage failed"
+                    archiveArtifacts artifacts: 'semgrep-results.json,semgrep-used-rules.txt', allowEmptyArchive: true
                 }
             }
         }
+        
+        stage('DAST - Nuclei Scan and Rule Extraction') {
+            steps {
+                script {
+                    // Install Nuclei if not already installed
+                    sh '''
+                        which nuclei || {
+                            wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.3/nuclei_3.1.3_linux_amd64.zip
+                            unzip nuclei_3.1.3_linux_amd64.zip
+                            sudo mv nuclei /usr/local/bin/
+                        }
+                        
+                        # Perform Nuclei scan
+                        nuclei -u http://${PRODUCTION_IP_ADDRESS}:${APP_PORT} \
+                               -t ${NUCLEI_TEMPLATES_PATH} \
+                               -o nuclei-results.txt
+                        
+                        # Extract used templates
+                        grep -oP '(?<=\[).*?(?=\])' nuclei-results.txt | 
+                        sort | 
+                        uniq > nuclei-used-templates.txt
+                    '''
+                    
+                    // Read the extracted templates
+                    def usedTemplates = readFile('nuclei-used-templates.txt').trim().split('\n')
+                    
+                    // Log the number of used templates
+                    echo "Total Nuclei Templates Used: ${usedTemplates.size()}"
+                    
+                    // Print the templates
+                    echo "Used Templates:"
+                    usedTemplates.each { template ->
+                        echo "- ${template}"
+                    }
+                }
+            }
+            post {
+                always {
+                    // Archive Nuclei scan results and used templates
+                    archiveArtifacts artifacts: 'nuclei-results.txt,nuclei-used-templates.txt', allowEmptyArchive: true
+                }
+            }
+        }
+        
         stage('Deploy to Production') {
             environment {
                 DEPLOY_SSH_KEY = credentials('aws_ssh_key')
@@ -138,56 +181,6 @@ pipeline {
                 }
             }
         }
-        
-        stage('DAST - Nuclei Scan and Rule Extraction') {
-            steps {
-                script {
-                    // Install Nuclei if not already installed
-                    sh '''
-                        which nuclei || {
-                            wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.3/nuclei_3.1.3_linux_amd64.zip
-                            unzip nuclei_3.1.3_linux_amd64.zip
-                            sudo mv nuclei /usr/local/bin/
-                        }
-                        
-                        # Perform Nuclei scan
-                        nuclei -u http://${PRODUCTION_IP_ADDRESS}:${APP_PORT} \
-                               -t ${NUCLEI_TEMPLATES_PATH} \
-                               -o nuclei-results.txt
-                    '''
-                    
-                    // Read Nuclei results and extract used templates
-                    def nucleiResults = readFile('nuclei-results.txt')
-                    
-                    // Use Groovy regex to extract template names
-                    def templateMatcher = nucleiResults =~ /\[([^\]]+)\]/
-                    def usedTemplates = []
-                    
-                    while (templateMatcher.find()) {
-                        usedTemplates << templateMatcher.group(1)
-                    }
-                    
-                    // Remove duplicates and write to file
-                    def uniqueTemplates = usedTemplates.unique()
-                    
-                    writeFile(
-                        file: 'nuclei-used-templates.json', 
-                        text: new groovy.json.JsonBuilder(uniqueTemplates).toPrettyString()
-                    )
-                    
-                    // Log the number of used templates
-                    echo "Total Nuclei Templates Used: ${uniqueTemplates.size()}"
-                }
-            }
-            post {
-                always {
-                    // Archive Nuclei scan results and used templates
-                    archiveArtifacts artifacts: 'nuclei-results.txt,nuclei-used-templates.json', allowEmptyArchive: true
-                }
-            }
-        }
-        
-        
     }
     
     post {
@@ -199,7 +192,6 @@ pipeline {
             script {
                 if (currentBuild.result == 'FAILURE') {
                     echo "Build failed. Sending notifications..."
-                    // Add email or Slack notification logic here
                 }
             }
         }
