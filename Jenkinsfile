@@ -41,54 +41,72 @@ pipeline {
         }
         
         stage('SAST - Semgrep Scan and Rule Extraction') {
-                steps {
-                    script {
-                        // Run Semgrep scan with detailed output
-                        def semgrepScanCommand = '''
-                            /var/lib/jenkins/.local/bin/semgrep ci \
-                            --json \
-                            --no-suppress-errors \
-                            -o semgrep-results.json
-                        '''
-                        
-                        def semgrepResult = sh(
-                            script: semgrepScanCommand,
-                            returnStatus: true,
-                            returnStdout: true
-                        )
-                        
-                        // Extract rule information using more robust jq parsing
-                        sh '''
-                            # Use jq to extract unique rule IDs
-                            jq -r '.results[].check_id' semgrep-results.json | 
+            steps {
+                script {
+                    // Run Semgrep scan with detailed output
+                    def semgrepScanCommand = '''
+                        /var/lib/jenkins/.local/bin/semgrep ci \
+                        --json \
+                        --no-suppress-errors \
+                        -o semgrep-results.json
+                    '''
+                    
+                    def semgrepResult = sh(
+                        script: semgrepScanCommand,
+                        returnStatus: true,
+                        returnStdout: true
+                    )
+                    
+                    // Extract full rule names using comprehensive jq parsing
+                    sh '''
+                        # Extract unique full rule names, handling different JSON structures
+                        (
+                            # Try extracting from results first
+                            jq -r '.results[].extra.rule_id // .results[].check_id // .results[].rule' semgrep-results.json | 
+                            # If that fails, try extracting from the check field
+                            grep -v '^null$' |
                             sort | 
                             uniq > semgrep-used-rules.txt
-                        '''
+                        ) || (
+                            # Fallback method to extract from the entire JSON
+                            jq -r 'paths | select(.[0] == "rules") | .[1]' semgrep-results.json | 
+                            sort | 
+                            uniq > semgrep-used-rules.txt
+                        )
                         
-                        // Read the extracted rules
-            def usedRules = readFile('semgrep-used-rules.txt').trim().split('\n')
-            
-            // Log the number of used rules
-            echo "Total Semgrep Rules Used: ${usedRules.size()}"
-            
-            // Print the rules
-            echo "Used Rules:"
-            usedRules.each { rule ->
-                echo "- ${rule}"
+                        # Count and display rules
+                        echo "Total unique rules extracted:"
+                        wc -l semgrep-used-rules.txt
+                    '''
+                    
+                    // Read the extracted rules
+                    def usedRules = readFile('semgrep-used-rules.txt').trim().split('\n')
+                    
+                    // Log the number of used rules
+                    echo "Total Semgrep Rules Used: ${usedRules.size()}"
+                    
+                    // Print the first 50 rules to avoid overwhelming the console
+                    echo "Sample of Used Rules:"
+                    usedRules.take(50).each { rule ->
+                        echo "- ${rule}"
+                    }
+                    
+                    if (usedRules.size() > 50) {
+                        echo "... and ${usedRules.size() - 50} more rules"
+                    }
+                    
+                    if (semgrepResult != 0) {
+                        echo "Semgrep scan completed with warnings or non-zero exit code"
+                    }
+                }
             }
-            
-            if (semgrepResult != 0) {
-                echo "Semgrep scan completed with warnings or non-zero exit code"
+            post {
+                always {
+                    // Archive Semgrep results and used rules
+                    archiveArtifacts artifacts: 'semgrep-results.json,semgrep-used-rules.txt', allowEmptyArchive: true
+                }
             }
         }
-    }
-    post {
-        always {
-            // Archive Semgrep results and used rules
-            archiveArtifacts artifacts: 'semgrep-results.json,semgrep-used-rules.txt', allowEmptyArchive: true
-        }
-    }
-}
         stage('Deploy to Production') {
             environment {
                 DEPLOY_SSH_KEY = credentials('aws_ssh_key')
