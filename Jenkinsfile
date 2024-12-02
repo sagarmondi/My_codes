@@ -91,7 +91,52 @@ pipeline {
                 }
             }
         }
-        
+        stage('Deploy to Production') {
+            environment {
+                DEPLOY_SSH_KEY = credentials('aws_ssh_key')
+            }
+            steps {
+                script {
+                    sh '''
+                        chmod 600 $DEPLOY_SSH_KEY
+                        ssh -o StrictHostKeyChecking=no -i $DEPLOY_SSH_KEY ec2-user@$PRODUCTION_IP_ADDRESS '
+                            # Install Node.js and dependencies
+                            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+                            source ~/.bashrc
+                            
+                            # Install latest LTS Node.js
+                            nvm install --lts
+                            
+                            # Install Yarn and PM2 globally
+                            npm install -g yarn pm2
+                            
+                            # Ensure Git is installed
+                            sudo yum update -y
+                            sudo yum install -y git
+                            
+                            # Clone or Update the repository
+                            if [ ! -d "My_codes" ]; then
+                                git clone https://github.com/sagarmondi/My_codes.git
+                                cd My_codes
+                            else
+                                cd My_codes
+                                git pull
+                            fi
+                            
+                            # Install project dependencies
+                            yarn install
+                            
+                            # Start or Restart the application
+                            if pm2 describe todos-app > /dev/null 2>&1; then
+                                pm2 restart todos-app
+                            else
+                                pm2 start --name todos-app npm -- start
+                            fi
+                        '
+                    '''
+                }
+            }
+        }
         stage('DAST - Nuclei Scan and Rule Extraction') {
             steps {
                 script {
