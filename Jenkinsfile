@@ -40,9 +40,10 @@ pipeline {
             }
         }
         
-        stage('SAST - Semgrep Scan') {
+        stage('SAST - Semgrep Scan and Rule Extraction') {
             steps {
                 script {
+                    // Run Semgrep scan with detailed output
                     def semgrepResult = sh(
                         script: '''
                             /var/lib/jenkins/.local/bin/semgrep ci \
@@ -50,8 +51,31 @@ pipeline {
                             --no-suppress-errors \
                             -o semgrep-results.json
                         ''',
-                        returnStatus: true
+                        returnStatus: true,
+                        returnStdout: true
                     )
+                    
+                    // Groovy-based rule extraction without external tools
+                    def semgrepResults = readFile('semgrep-results.json')
+                    
+                    // Parse JSON and extract unique rule IDs
+                    def jsonSlurper = new groovy.json.JsonSlurperClassic()
+                    def parsedResults = jsonSlurper.parseText(semgrepResults)
+                    
+                    // Extract unique rule IDs
+                    def usedRules = parsedResults.results.collect { it.extra.rule_id }.unique()
+                    
+                    // Write used rules to a file
+                    def rulesJsonBuilder = new groovy.json.JsonBuilder()
+                    rulesJsonBuilder(usedRules)
+                    
+                    writeFile(
+                        file: 'semgrep-used-rules.json', 
+                        text: rulesJsonBuilder.toPrettyString()
+                    )
+                    
+                    // Log the number of used rules
+                    echo "Total Semgrep Rules Used: ${usedRules.size()}"
                     
                     if (semgrepResult != 0) {
                         error "Semgrep scan failed with exit code ${semgrepResult}"
@@ -60,16 +84,14 @@ pipeline {
             }
             post {
                 always {
-                    // Archive Semgrep results if they exist
-                    archiveArtifacts artifacts: 'semgrep-results.json', allowEmptyArchive: true
+                    // Archive Semgrep results and used rules
+                    archiveArtifacts artifacts: 'semgrep-results.json,semgrep-used-rules.json', allowEmptyArchive: true
                 }
                 failure {
-                    // Optional: Add specific failure handling
                     echo "Semgrep scan stage failed"
                 }
             }
         }
-        
         stage('Deploy to Production') {
             environment {
                 DEPLOY_SSH_KEY = credentials('aws_ssh_key')
@@ -117,7 +139,7 @@ pipeline {
             }
         }
         
-        stage('DAST - Nuclei Scan') {
+        stage('DAST - Nuclei Scan and Rule Extraction') {
             steps {
                 script {
                     // Install Nuclei if not already installed
@@ -133,15 +155,39 @@ pipeline {
                                -t ${NUCLEI_TEMPLATES_PATH} \
                                -o nuclei-results.txt
                     '''
+                    
+                    // Read Nuclei results and extract used templates
+                    def nucleiResults = readFile('nuclei-results.txt')
+                    
+                    // Use Groovy regex to extract template names
+                    def templateMatcher = nucleiResults =~ /\[([^\]]+)\]/
+                    def usedTemplates = []
+                    
+                    while (templateMatcher.find()) {
+                        usedTemplates << templateMatcher.group(1)
+                    }
+                    
+                    // Remove duplicates and write to file
+                    def uniqueTemplates = usedTemplates.unique()
+                    
+                    writeFile(
+                        file: 'nuclei-used-templates.json', 
+                        text: new groovy.json.JsonBuilder(uniqueTemplates).toPrettyString()
+                    )
+                    
+                    // Log the number of used templates
+                    echo "Total Nuclei Templates Used: ${uniqueTemplates.size()}"
                 }
             }
             post {
                 always {
-                    // Archive Nuclei scan results
-                    archiveArtifacts artifacts: 'nuclei-results.txt', allowEmptyArchive: true
+                    // Archive Nuclei scan results and used templates
+                    archiveArtifacts artifacts: 'nuclei-results.txt,nuclei-used-templates.json', allowEmptyArchive: true
                 }
             }
         }
+        
+        
     }
     
     post {
@@ -161,6 +207,5 @@ pipeline {
             // Clean up workspace
             cleanWs()
         }
-        
     }
 }
