@@ -1,6 +1,6 @@
 pipeline {
     agent any
-    
+
     environment {
         // Semgrep credentials
         SEMGREP_APP_TOKEN = credentials('SEMGREP_APP_TOKEN')
@@ -60,19 +60,8 @@ pipeline {
                     // Extract full rule names using comprehensive jq parsing
                     sh '''
                         # Extract unique full rule names, handling different JSON structures
-                        (
-                            # Try extracting from results first
-                            jq -r '.results[].extra.rule_id // .results[].check_id // .results[].rule' semgrep-results.json | 
-                            # If that fails, try extracting from the check field
-                            grep -v '^null$' |
-                            sort | 
-                            uniq > semgrep-used-rules.txt
-                        ) || (
-                            # Fallback method to extract from the entire JSON
-                            jq -r 'paths | select(.[0] == "rules") | .[1]' semgrep-results.json | 
-                            sort | 
-                            uniq > semgrep-used-rules.txt
-                        )
+                        jq -r '(.results[] | .check_id) // empty' semgrep-results.json | \
+                        sort | uniq > semgrep-used-rules.txt
                         
                         # Count and display rules
                         echo "Total unique rules extracted:"
@@ -170,8 +159,8 @@ pipeline {
                                -o nuclei-results.txt
                         
                         # Extract used templates
-                        grep -oP '(?<=\\[).*?(?=\\])' nuclei-results.txt | 
-                        sort | 
+                        grep -oP '(?<=\[).*?(?=\])' nuclei-results.txt | \
+                        sort | \
                         uniq > nuclei-used-templates.txt
                     '''
                     
