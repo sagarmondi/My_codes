@@ -76,7 +76,7 @@ pipeline {
                     
                     // Print the first 50 rules to avoid overwhelming the console
                     echo "Sample of Used Rules:"
-                    usedRules.take(50).each { rule ->
+                    usedRules.subList(0, Math.min(50, usedRules.size())).each { rule ->
                         echo "- ${rule}"
                     }
                     
@@ -159,7 +159,7 @@ pipeline {
                                -o nuclei-results.txt
                         
                         # Extract used templates
-                        grep -oP '(?<=\\[).*?(?=\\])' nuclei-results.txt | \
+                        grep -oP '(?<=\[).*?(?=\])' nuclei-results.txt | \
                         sort | \
                         uniq > nuclei-used-templates.txt
                     '''
