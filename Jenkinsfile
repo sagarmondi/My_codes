@@ -159,7 +159,7 @@ pipeline {
                                -o nuclei-results.txt
                         
                         # Extract used templates
-                        grep -oP '(?<=\[).*?(?=\])' nuclei-results.txt | \
+                        grep -oP '(?<=\\[).*?(?=\\])' nuclei-results.txt | \
                         sort | \
                         uniq > nuclei-used-templates.txt
                     '''
